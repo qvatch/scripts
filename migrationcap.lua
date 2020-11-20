@@ -7,6 +7,11 @@ A derivation of fix/population-cap.
 This script will try and limit the size of incoming migrant waves (not including the two hardcoded ones), up to a given value that must be less than or equal to the init file popcap.
 
 -Qvatch 2020-11-20: v1.0
+
+Features to add: [TODO]
+-address babycap
+-just read the init file for the actual popcap
+-can we see/use the hardcap?
 ]====]
 local utils = require('utils')
 local validArgs = utils.invert({ 'wavecap', 'targetpop', 'help', 'verbose', 'enable', 'disable', 'setup_popcap', 'trialrun', 'persist', 'resume' ,'status'})
@@ -29,6 +34,7 @@ This script attempts to limit the number of migrants per migration wave. Slower 
 This script is based on fix/population-cap, and thus shares its' limitations. Of note:  migration waves will have 0-2 bonus dwarves.
 
 Notes: This script cannot override the init file popcap, babycap, etc. It only adjusts the softcap. It is unable to pass the actual popcap, even if you set targetpop > whatever the actual popcap is in the init file.
+    Also, the two hardcoded waves are not affected.
 
 You must supply a -setup_popcap on the first run.
 
@@ -274,7 +280,7 @@ if not trialrun then
         enable = true
         local persistopts = dfhack.persistent.get("migrationcap.lua saved options")
         if persistopts == nil then
-            error("migrationcap.lua cannot resume, no saved options found for this savegame.")
+            print("migrationcap.lua cannot resume, no saved options found for this savegame.")
         end
         setup_popcap = persistopts.ints[1]
         targetpop = persistopts.ints[2]
