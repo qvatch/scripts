@@ -11,7 +11,7 @@
 --v4.1 [2020-10-08]: Added some meta-commands to construction:pasteAs, removed display of cursor on brush if not blinking (brush is a cursor)
 --v4.1.1 [2020-10-09]: bugfix.
 --v4.1.2 [2020-10-15]: Fixed resuming by adding pcall and a resume function. add unbuilt constructions to select menu.
-
+--todo: materials: brick
 
 --[====[
 
