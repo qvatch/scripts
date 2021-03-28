@@ -1,20 +1,4 @@
---designating tool
---v1: Original stamper: copy/paste/transform designations
---v2: grow/shrink and some digshape integration
---v3: ~2019-06-21 Cellular automata, mouse
---v4 [2020-09-27]:bloated with new features by Qvatch.
---    -place constructions
---         -simplistic material choice
---         -variably map designations -> constructions
---    -set brush can optionally also read already dug/placed stuff
---    -erase can now choose between designations/built constructions/placed const. jobs
---v4.1 [2020-10-08]: Added some meta-commands to construction:pasteAs, removed display of cursor on brush if not blinking (brush is a cursor)
---v4.1.1 [2020-10-09]: bugfix.
---v4.1.2 [2020-10-15]: Fixed resuming by adding pcall and a resume function. add unbuilt constructions to select menu.
---todo: materials: brick
-
 --[====[
-
 gui/stamper
 ===========
 allows manipulation of designations by transforms such as translations, reflections, rotations, and inversion.
@@ -26,12 +10,38 @@ brushes can be saved/loaded to a file (currently only one at a time)
 
 ]====]
 
+--designating tool
+--v1:
+--v2:
+--v3:
+--v4 [2020-09-27]:bloated with new features by Qvatch[2019-2020].
+--    -place constructions
+--         -simplistic material choice
+--         -variably map designations -> constructions
+--    -set brush can optionally also read already dug/placed stuff
+--    -erase can now choose between designations/built constructions/placed const. jobs
+--v4.1 [2020-10-08]: Added some meta-commands to construction:pasteAs, removed display of cursor on brush if not blinking (brush is a cursor)
+--v4.1.1 [2020-10-09]: bugfix.
+--v4.1.2 [2020-10-15]: Fixed resuming by adding pcall and a resume function. add unbuilt constructions to select menu.
+--v4.1.3 [2020-12-29]:
+--[[
+    * Add brick as construction material.
+    * Working on 'Closering': attempts to automodify a buffer meant to place walls, to allow stepwise construction of outside corner walls.
+--]]
+
+
+
+
+
+--idea: new mod, allow overbuilding existing constructions (build then deconstruct former).
+
+
 
 --[[
 --------------------------------------------------------
             Example constructions workflow:
 --------------------------------------------------------
-Illustrated: <insert web address when hosted, until then, stamper.zip>
+Illustrated: https://imgur.com/a/BJiowXm
 
 ====  I want to build an above ground elliptical tower.  ====
 
@@ -48,7 +58,7 @@ Illustrated: <insert web address when hosted, until then, stamper.zip>
 3. Place some stairways <i>
 
 =Switch to stamper, (designation mode)
-In the dfhack console (not the Ctrl-Shift-P prompt, it just makes a black screen) enter: gui/stamper
+In the dfhack console (not the Ctrl-Shift-P prompt, it just makes a black screen) enter: gui/stamperc
 
 1. Draw the select box around your designations. (If you've already got a selection made, use <s> to begin a new selection.
     1a. Move the cursor to one corner of the designation, press enter to mark
@@ -150,7 +160,7 @@ Ok, I hope you can see how this saves time when you have a lot of floors to do (
 2. Things collapsed when I was building!
   -Either you placed constructions where they would have no support (like building walls off the middle of a bridge), or you removed support. Maybe you placed constructions in trees (don't do that).
 
-3. I called gui/stamper but the df window just went black
+3. I called gui/stamperc but the df window just went black
   -You can't call stamper from the Ctrl-Shift-P in game command prompt, use the dfhack console window.
   -Try pressing enter in the console, worst case if the stamper menu is shown but you can't exit: devel/pop-screen.
 
@@ -163,6 +173,9 @@ devel/pop-screen: exit an active gui script
 devel/clear-script-env SCRIPTNAME
 :lua _G.stamper_saved_options=nil   : clears stamper's special save
 devel/click-monitor start|stop : prints coordinates of mouse clicks to console
+
+
+local time = dfhack.filesystem.mtime(file)
 ]]
 
 
@@ -177,14 +190,14 @@ devel/click-monitor start|stop : prints coordinates of mouse clicks to console
 --todo: matrix transformations
 --todo: paste with digshape nfold symmetry
 --todo: arbitrary rotation (buffer---rotate-->pastebuffer so that each rotation does not corrupt the orig, overwrite buffer each 90deg)
-
+--todo: devel/list-filters::    List input items for the building currently being built. This is where the filters in lua/dfhack/buildings.lua come from.
 
 
 
 --BUG [cant repro]: ***CRASH TO DESKTOP*** (vrare) reopening stamper after a quicksave? maybe only done with ctrl-shift-p? associated with moving up a z level?
 --bug: if dwarf gets stranded, will cancel touching jobs with "no block" rather than suspend.
 --bug: cannot erase a deconstruct order (d-n job) when it is in progress, but d-x works fine.
-
+--bug: stamping constructions does not mark blocks as in-job, so building constructions manually can reselect those blocks, causing the manual builds to fail (as the stamped ones get built first).
 
 local utils = require "utils"
 local gui = require "gui"
@@ -293,7 +306,7 @@ function StamperUI:init()
             self[k] = v
         end
     else
-        print("stamper..2020-10-14..v4.1.2 prerelease")
+        print("Stamper..2020-12-29..v4.1.3")
         self.state = "mark"
     end
 
@@ -406,7 +419,7 @@ local function padBuffer(data, n)
             if y > (n - 1) and x > (n - 1) and y < data.ylen + (n * 2) and x < data.xlen + (n * 2) then
                 buffer[x][y] = data[x - n][y - n]
             else
-                buffer[x][y] = 0 --{dig=0}
+                buffer[x][y] = df.tile_dig_designation.No --{dig=0}
             end
         end
     end
@@ -452,15 +465,15 @@ local function getTiles(p1, p2, cull, selectmode)
                             local selected = false --only process select checkings until we get a result, skip the rest.
                             if selectmode.designations then
                                 --data[x-x1][y-y1].dig is the current dig designation, we can just copy it straight.
-                                if data[x - x1][y - y1].dig == 1 then
+                                if data[x - x1][y - y1].dig == df.tile_dig_designation.Default then
                                     selected = true
                                     if tiletype.shape == df.tiletype_shape.FLOOR or mat == df.tiletype_material.AIR then
                                         --clear dig designation on invalid tiles
-                                        data[x - x1][y - y1].dig = 0
+                                        data[x - x1][y - y1].dig = df.tile_dig_designation.No
                                     end
                                 end
                             else
-                                data[x - x1][y - y1].dig = 0
+                                data[x - x1][y - y1].dig = df.tile_dig_designation.No
                             end
 
                             if selectmode.empty then
@@ -490,6 +503,7 @@ local function getTiles(p1, p2, cull, selectmode)
                                 --currently should get existing and planned constructions. Use the building flag "exists" to differentiate
                                 if not selected then
                                     if selectmode.constructionsPlaced then
+                                        --This block selects Placed but unbuilt constructions
                                         local building = dfhack.buildings.findAtTile(x, y, z)
                                         selected = true
 
@@ -517,8 +531,11 @@ local function getTiles(p1, p2, cull, selectmode)
                                             end
 
                                         end
-                                    elseif mat == df.tiletype_material.CONSTRUCTION then
-                                        data[x - x1][y - y1].dig = 1
+
+                                    end
+                                    if mat == df.tiletype_material.CONSTRUCTION then
+                                        --This block selects Built constructions
+                                        data[x - x1][y - y1].dig = df.tile_dig_designation.Default
 
                                         selected = true
                                         if (tiletype.shape == df.tiletype_shape.WALL or tiletype.shape == df.tiletype_shape.FORTIFICATION) then
@@ -678,7 +695,7 @@ function StamperUI:pasteBuffer(position, blockList)
                 if x >= x1 and x <= x2 then
                     for block_y, tile in ipairs(row) do
                         local y = block_y + block.map_pos.y
-                        if y >= y1 and y <= y2 and (self.buffer[x - x1] and self.buffer[x - x1][y - y1] and (self.buffer[x - x1][y - y1] > 0 or self.option == 'verbatim')) then
+                        if y >= y1 and y <= y2 and (self.buffer[x - x1] and self.buffer[x - x1][y - y1] and (self.buffer[x - x1][y - y1] ~=df.tile_dig_designation.No or self.option == 'verbatim')) then
                             local tiletype = df.tiletype.attrs[block.tiletype[block_x][block_y]]
                             local mat = tiletype.material
                             local buildtype = df.building_type.Construction
@@ -709,7 +726,7 @@ function StamperUI:pasteBuffer(position, blockList)
 
 
                                 else
-                                    tile.dig = 0 --setting tile
+                                    tile.dig = df.tile_dig_designation.No --setting tile
                                 end
                             elseif self.mode == "dig" then
                                 if not (self.buffer[x - x1][y - y1] == 1 and tiletype.shape == df.tiletype_shape.FLOOR or mat == df.tiletype_material.AIR) then
@@ -741,9 +758,19 @@ function StamperUI:pasteBuffer(position, blockList)
                                 end
                                 if legalplacement then
                                     --Sort out materials for the build
+                                    --[[===Information on build materials===
+
+
+
+                                    --]]
                                     local mats = dfhack.matinfo.find(self.constructionmaterial.mat_name .. (self.constructionmaterial.item_name == "WOOD" and ":WOOD" or ""))
                                     --print(tostring(mats))
                                     --local buildmatfilter=dfhack.buildings.input_filter_defaults
+                                    if self.constructionmaterial.item_name == "BRICKS" then
+                                        self.constructionmaterial.item_type = df.item_type.BLOCKS
+                                        --then double check matID
+                                    end
+
                                     if self.constructionmaterial.item_name == "BLOCKS" then
                                         self.constructionmaterial.item_type = df.item_type.BLOCKS
                                     elseif self.constructionmaterial.item_name == "BOULDERS" then
@@ -756,17 +783,9 @@ function StamperUI:pasteBuffer(position, blockList)
                                     --print("item_type="..self.constructionmaterial.item_type..", mat_type="..mats.type..", mat_index="..mats.index)
 
                                     --Build the construction!
-                                    --local buildreturn=dfhack.constructions.designateNew(xyz2pos(x,y,z),buildtype,df.item_type.BLOCKS,dfhack.matinfo.find("QUARTZITE").index) --Old way of doing this, has some bugs (details at end of file)
-                                    local buildreturn = dfhack.buildings.constructBuilding({ pos = xyz2pos(x, y, z), type = buildtype, subtype = buildsubtype, filters = { { item_type = self.constructionmaterial.item_type, mat_type = mats.type, mat_index = mats.index } } }) --see also list-filters.lua
 
-                                    --if buildreturn==0 then
-                                    --    --some error occurred, fish for diagnostic info..
-                                    --    print("constructions.designatenew returned: "..tostring(buildreturn)..",  xyz["..x..", "..y..", "..z.."] ")
-                                    --end
-
-
-                                    --future idea: dfhack.buildings.hasSupport(pos,size) to ensure support..? Useful for removing in stages.
-
+                                    --[[
+                                    ==On the choice of build function==
                                     --df.building_type.Construction, df.building_subtype.WALL
                                     --BAR, BLOCKS, BOULDER, WOOD
 
@@ -784,6 +803,21 @@ function StamperUI:pasteBuffer(position, blockList)
                                     --    newcons->type = type;
 
                                     --Instead try dfhack.buildings.constructBuilding  (see: https://docs.dfhack.org/en/stable/docs/Lua%20API.html#high-level)
+
+                                    --]]
+
+                                    --local buildreturn=dfhack.constructions.designateNew(xyz2pos(x,y,z),buildtype,df.item_type.BLOCKS,dfhack.matinfo.find("QUARTZITE").index) --Old way of doing this, has some bugs (details at end of file)
+                                    local buildreturn = dfhack.buildings.constructBuilding({ pos = xyz2pos(x, y, z), type = buildtype, subtype = buildsubtype, filters = { { item_type = self.constructionmaterial.item_type, mat_type = mats.type, mat_index = mats.index } } }) --see also list-filters.lua
+
+                                    --if buildreturn==0 then
+                                    --    --some error occurred, fish for diagnostic info..
+                                    --    print("constructions.designatenew returned: "..tostring(buildreturn)..",  xyz["..x..", "..y..", "..z.."] ")
+                                    --end
+
+
+                                    --future idea: dfhack.buildings.hasSupport(pos,size) to ensure support..? Useful for removing in stages.
+
+
                                 end
                             end
                         end
@@ -798,10 +832,10 @@ end
 function StamperUI:invertBuffer()
     --this modifies the buffer instead of copying it
     self.buffer = self:transformBuffer(function(x, y, xlen, ylen, tile)
-        if tile > 0 then
-            tile = 0
+        if tile ~=df.tile_dig_designation.No then
+            tile = df.tile_dig_designation.No
         else
-            tile = 1
+            tile = df.tile_dig_designation.Default
         end
         return x, y, tile
     end)
@@ -821,6 +855,8 @@ function StamperUI:renderOverlay()
     elseif (gui.blink_visible(self.blinkrate[self.blinkrate[1]]) or not self.blink) and self.buffer ~= nil and (self.state ~= "mark" or (self.state == "mark" and self.option == "create")) then
         local fg = COLOR_BLACK
         local bg = COLOR_LIGHTCYAN
+
+
 
         local offsetX, offsetY = self:getOffset()
         for x = 0, self.buffer.xlen do
@@ -842,7 +878,7 @@ function StamperUI:renderOverlay()
                     end
                 end
 
-                if tile > 0 then
+                if tile ~=df.tile_dig_designation.No then
                     local symbol = digSymbols[tile]
                     if self.mode == "construction" then
                         symbol = constructSymbols[self.constructMapping[tile]]
@@ -879,8 +915,7 @@ function StamperUI:renderOverlay()
 end
 
 function StamperUI:onRenderBody(dc)
-    if df.global.cursor.x == -30000 then
-        --and not self.hello then
+    if df.global.cursor.x == -30000 then--and not self.hello then
         local vp = self:getViewport()
         df.global.cursor = xyz2pos(math.floor((vp.x1 + math.abs((vp.x2 - vp.x1)) / 2) + .5), math.floor((vp.y1 + math.abs((vp.y2 - vp.y1) / 2)) + .5), df.global.window_z)
         return
@@ -888,7 +923,7 @@ function StamperUI:onRenderBody(dc)
     --self.hello = true --a flag to indicate the first run, so we can print the version# to console
     self:renderOverlay()
 
-    dc:clear():seek(1, 1):pen(COLOR_WHITE):string("stamper - " .. self.state:gsub("^%a", function(x)
+    dc:clear():seek(1, 1):pen(COLOR_WHITE):string("Stamper - " .. self.state:gsub("^%a", function(x)
         return x:upper()
     end) .. " - " .. self.mode)
     dc:seek(1, 3)
@@ -976,21 +1011,22 @@ function StamperUI:onRenderBody(dc)
         dc:key_string("CUSTOM_SHIFT_L", "Load Brush", COLOR_GREY)
 
 
+
     elseif self.state == "mark" then
         if self.buffer == nil then
             dc:string("Select two corners.")
         end
         dc:newline():newline(1)
         --selection options
-        dc:key_string("CUSTOM_D", (self.selectmode.designations and "" or "Not ") .. "Selecting Designations", self.selectmode.designations and COLOR_WHITE or COLOR_GREY):newline(1)
-        dc:key_string("CUSTOM_C", (self.selectmode.constructions and "" or "Not ") .. "Selecting Constructions", self.selectmode.constructions and COLOR_WHITE or COLOR_GREY)
+        dc:key_string("CUSTOM_D", (self.selectmode.designations and "" or "Not ") .. "Selecting Designations", self.selectmode.designations and COLOR_WHITE or COLOR_DARKGREY):newline(1)
+        dc:key_string("CUSTOM_C", (self.selectmode.constructions and "" or "Not ") .. "Selecting Constructions", self.selectmode.constructions and COLOR_WHITE or COLOR_DARKGREY)
         if self.selectmode.constructions then
-            dc:newline(3):key_string("CUSTOM_ALT_C", "Walls: " .. (self.selectmode.constructionWallsAsChannels and "as channels" or "No designation"), self.selectmode.constructions and COLOR_WHITE or COLOR_GREY)
-            dc:newline(3):key_string("CUSTOM_U", (self.selectmode.constructions and "" or "Not ") .. "Selecting Unbuilt Constructions", self.selectmode.constructions and COLOR_WHITE or COLOR_GREY):newline(1)
+            dc:newline(3):key_string("CUSTOM_ALT_C", "Walls: " .. (self.selectmode.constructionWallsAsChannels and "as channels" or "as blank"), self.selectmode.constructions and COLOR_WHITE or COLOR_DARKGREY)
+            dc:newline(3):key_string("CUSTOM_U", (self.selectmode.constructionsPlaced  and "" or "Not ") .. "Selecting Unbuilt Constructions", self.selectmode.constructionsPlaced  and COLOR_WHITE or COLOR_DARKGREY):newline(1)
         else
             dc:newline(1)
         end
-        dc:key_string("CUSTOM_E", (self.selectmode.empty and "" or "Not ") .. "Selecting Exisiting", self.selectmode.empty and COLOR_WHITE or COLOR_GREY):newline(1)
+        dc:key_string("CUSTOM_E", (self.selectmode.empty and "" or "Not ") .. "Selecting Exisiting", self.selectmode.empty and COLOR_WHITE or COLOR_DARKGREY):newline(1)
 
         if not (self.selectmode.designations or self.selectmode.constructions or self.selectmode.empty) then
             dc:newline(1):string("!! NO SELECTIONS SET !!", COLOR_BLACK, (gui.blink_visible(250) and COLOR_LIGHTRED or COLOR_RED))
@@ -1086,7 +1122,7 @@ function StamperUI:onInput(keys, drag, tempcursor)
         if keys.CUSTOM_S then
             self.state = "mark"
         elseif keys.CUSTOM_SHIFT_S then
-            local file = io.open("stamperPattern.txt", "w")
+            local file = io.open("StamperPattern.txt", "w")
             io.output(file)
             io.write(self.buffer.xlen, "\n")
             io.write(self.buffer.ylen, "\n")
@@ -1100,7 +1136,7 @@ function StamperUI:onInput(keys, drag, tempcursor)
             print("Saved gui/stamper buffer to <<StamperPattern.txt>> in the main df folder")
 
         elseif keys.CUSTOM_SHIFT_L then
-            local file = io.open("stamperPattern.txt", "r")
+            local file = io.open("StamperPattern.txt", "r")
             io.input(file)
             self.buffer = {}
             self.buffer.xlen = io.read("n")
@@ -1115,7 +1151,7 @@ function StamperUI:onInput(keys, drag, tempcursor)
                 io.read(1)
             end
             io.close(file)
-            print("Restored gui/stamper buffer from <<stamperPattern.txt>> in the main df folder")
+            print("Restored gui/stamper buffer from <<StamperPattern.txt>> in the main df folder")
 
         elseif (keys.SECONDSCROLL_DOWN or keys._STRING == 61 or keys._STRING == 43) and self.buffer then
             -- + or =
@@ -1227,20 +1263,20 @@ function StamperUI:onInput(keys, drag, tempcursor)
             --print(matok, mattype, matindex)
             --print(StamperUI.ATTRS.constructionmaterial.mat_name)
             showMatDialog('Choose Material',
-                    'Enter a material name (eg. QUARTZITE) for constructions:',
-                    self.constructionmaterial.mat_name,
-                    function(newval)
-                        self.constructionmaterial.mat_name = newval:upper()
-                    end)
+                          'Enter a material name (eg. QUARTZITE) for constructions:',
+                          self.constructionmaterial.mat_name,
+                          function(newval)
+                              self.constructionmaterial.mat_name = newval:upper()
+                          end)
             --TODO: do some error checking here to make sure it's valid..
             --print("mattext:"..tostring(StamperUI.ATTRS.constructionmaterial.mat_name))
         elseif keys.CUSTOM_SHIFT_B then
             showMatDialog('Choose item type',
-                    'Enter a item name (BLOCKS, BOULDERS, WOOD, BARS) for constructions:',
-                    self.constructionmaterial.item_name,
-                    function(newval)
-                        self.constructionmaterial.item_name = newval:upper()
-                    end)
+                          'Enter a item name (BLOCKS (BRICKS), BOULDERS, WOOD, BARS) for constructions:',
+                          self.constructionmaterial.item_name,
+                          function(newval)
+                              self.constructionmaterial.item_name = newval:upper()
+                          end)
 
             --TODO: do some error checking here to make sure it's valid..
 
@@ -1258,6 +1294,8 @@ function StamperUI:onInput(keys, drag, tempcursor)
 
         elseif keys.CUSTOM_B then
             self.blink = not self.blink
+        elseif keys.CUSTOM_CTRL_K then
+            self:closering()--self.buffer=self.closering()--self.buffer)
         elseif keys.CUSTOM_ALT_B then
             self.blinkrate[1] = 2 + (self.blinkrate[1] - 1) % (#self.blinkrate - 1)
         elseif keys.CUSTOM_M then
@@ -1480,7 +1518,7 @@ function StamperUI:onInput(keys, drag, tempcursor)
             self.selectmode.constructionWallsAsChannels = not self.selectmode.constructionWallsAsChannels
         elseif keys.CUSTOM_U then
             self.selectmode.constructionsPlaced = not self.selectmode.constructionsPlaced
-            print("sm:" .. tostring(self.selectmode.constructionsPlaced))
+            --print("sm:" .. tostring(self.selectmode.constructionsPlaced))
         elseif keys.CUSTOM_E then
             self.selectmode.empty = not self.selectmode.empty
 
@@ -1658,6 +1696,126 @@ function StamperUI:onInput(keys, drag, tempcursor)
     end
 end
 
+function sleep(n)
+    local start = os.clock()
+    while os.clock() - start < n do end
+end
+
+
+
+
+
+function StamperUI:closering()--self.buffer)
+    --[[
+    This function assists with the creation of paste buffers designed to deal with outside corners of walls being built in the wrong order.
+
+    Process: for a 1 tile thick curve (corners unfilled), working on the inside (with the center of the brush considered inside) add ramps to fill corners, then convert packed ramps to stairs to avoid collapses.
+    --]]
+
+
+    local centerx=math.floor(self.buffer.xlen/2)
+    local centery=math.floor(self.buffer.ylen/2)
+
+    local vp = self:getViewport()
+    local dc = gui.Painter.new(self.df_layout.map)
+    local offsetX, offsetY = self:getOffset()
+
+    --First iteration, fill all corners
+    for x = 1, (self.buffer.xlen-1) do
+        for y = 1, (self.buffer.ylen-1) do
+            -- print(x..","..y..": "..self.buffer[x][y])
+            paintMapTile(dc, vp, nil, xyz2pos((self:getCursor()).x + x + offsetX, (self:getCursor()).y + y + offsetY, (self:getCursor()).z), "*", COLOR_RED, COLOR_GREEN)
+
+            --NW quadrant
+            if x<centerx and y<centery then
+                --print("NW: "..self.buffer[x-1][y].." "..self.buffer[x][y-1])
+                if self.buffer[x-1][y]==df.tile_dig_designation.Channel and self.buffer[x][y-1]==df.tile_dig_designation.Channel then
+                    --check the tile N,W of tile, if both than ramp.
+                    self.buffer[x][y]=df.tile_dig_designation.Ramp
+                end
+            elseif x<centerx and y>centery then
+                --SW quadrant
+                --print("SW: "..self.buffer[x-1][y].." "..self.buffer[x][y+1])
+                if self.buffer[x-1][y]==df.tile_dig_designation.Channel and self.buffer[x][y+1]==df.tile_dig_designation.Channel then
+                    --check the tile N,W of tile, if both than ramp.
+                    self.buffer[x][y]=df.tile_dig_designation.Ramp
+                end
+            elseif x==centerx or y==centery then
+                --SW quadrant
+                --print("XX: "..self.buffer[x-1][y].." "..self.buffer[x][y-1].." "..self.buffer[x+1][y].." "..self.buffer[x][y+1])
+                if (self.buffer[x-1][y]==df.tile_dig_designation.Channel and self.buffer[x][y-1]==df.tile_dig_designation.Channel) or (self.buffer[x+1][y]==df.tile_dig_designation.Channel and self.buffer[x][y+1]==df.tile_dig_designation.Channel ) then
+                    --check the tile N,W of tile, if both than ramp.
+                    self.buffer[x][y]=df.tile_dig_designation.Ramp
+                end
+            elseif x>centerx and y<centery then
+                --NE quadrant
+                --print("NE: "..self.buffer[x+1][y].." "..self.buffer[x][y-1])
+                if self.buffer[x+1][y]==df.tile_dig_designation.Channel and self.buffer[x][y-1]==df.tile_dig_designation.Channel then
+                    --check the tile N,W of tile, if both than ramp.
+                    self.buffer[x][y]=df.tile_dig_designation.Ramp
+                end
+            else
+                --SE quadrant
+                --print("SE: "..self.buffer[x+1][y].." "..self.buffer[x][y+1])
+                if self.buffer[x+1][y]==df.tile_dig_designation.Channel and self.buffer[x][y+1]==df.tile_dig_designation.Channel then
+                    --check the tile N,W of tile, if both than ramp.
+                    self.buffer[x][y]=df.tile_dig_designation.Ramp
+                end
+            end
+            -- if self.buffer[x][y] ~=0 then sleep(0.05) end
+        end
+    end
+    local count=0
+    --Second iteration: tag middle ramps as stairs to prevent unsupported 3 diagonal in a row
+    for x = 1, (self.buffer.xlen-1) do
+        for y = 1, (self.buffer.ylen-1) do
+            --print(x..","..y..": "..self.buffer[x][y])
+            if self.buffer[x][y]==df.tile_dig_designation.Ramp then
+                if self.buffer[x-1][y-1]==df.tile_dig_designation.Ramp then count=count+1 end
+                if self.buffer[x+1][y+1]==df.tile_dig_designation.Ramp then count=count+1 end
+                if self.buffer[x-1][y+1]==df.tile_dig_designation.Ramp then count=count+1 end
+                if self.buffer[x+1][y-1]==df.tile_dig_designation.Ramp then count=count+1 end
+
+                --print(x..","..y..": "..self.buffer[x][y].." c:"..count)
+                if count >=2 then
+                    --check the tile N,W of tile, if both than ramp.
+                    self.buffer[x][y]=df.tile_dig_designation.Channel
+                end
+                count=0
+
+            end
+
+        end
+
+    end
+
+    --Third iteration: tag middle ramps as stairs to prevent unsupported 2 diagonal in a row
+    count=0
+    for x = 1, (self.buffer.xlen-1) do
+        for y = 1, (self.buffer.ylen-1) do
+            --print(x..","..y..": "..self.buffer[x][y])
+            if self.buffer[x][y]==df.tile_dig_designation.Ramp then
+                if self.buffer[x-1][y-1]==df.tile_dig_designation.Ramp then count=count+1 end
+                if self.buffer[x+1][y+1]==df.tile_dig_designation.Ramp then count=count+1 end
+                if self.buffer[x-1][y+1]==df.tile_dig_designation.Ramp then count=count+1 end
+                if self.buffer[x+1][y-1]==df.tile_dig_designation.Ramp then count=count+1 end
+
+                --print(x..","..y..": "..self.buffer[x][y].." c:"..count)
+                if count >=1 then
+                    --check the tile N,W of tile, if both than ramp.
+                    self.buffer[x][y]=df.tile_dig_designation.Channel
+                end
+                count=0
+
+            end
+
+        end
+
+    end
+    --return self.buffer
+end
+
+
 if not (dfhack.gui.getCurFocus():match("^dwarfmode/Default") or dfhack.gui.getCurFocus():match("^dwarfmode/Designate") or dfhack.gui.getCurFocus():match("^dwarfmode/LookAround")) then
     qerror("This screen requires the main dwarfmode view or the designation screen")
 end
@@ -1794,3 +1952,15 @@ end
 --8                      	 = STAIR_UPDOWN
 --9                      	 = RAMP
 --10                     	 = RAMP_TOP
+
+--[[lua @df.
+<type: tile_dig_designation>
+df.tile_dig_designation.
+0                        = No
+1                        = Default
+2                        = UpDownStair
+3                        = Channel
+4                        = Ramp
+5                        = DownStair
+6                        = UpStair]]
+
