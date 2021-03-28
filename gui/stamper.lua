@@ -30,6 +30,11 @@ brushes can be saved/loaded to a file (currently only one at a time)
 --]]
 
 
+--[[
+Special Keupo version features
+    * Keupo bed:  Connects + bedrooms to nearest designation.
+
+--]]
 
 
 
@@ -306,7 +311,7 @@ function StamperUI:init()
             self[k] = v
         end
     else
-        print("Stamper..2020-12-29..v4.1.3")
+        print("Stamper..2020-12-29..v4.1.3+K")
         self.state = "mark"
     end
 
@@ -325,11 +330,12 @@ function StamperUI:resume()
     attr.selectmode = _G.stamper_saved_options.selectmode
     attr.erasemode = _G.stamper_saved_options.erasemode
     attr.state = _G.stamper_saved_options.state
+    attr.keupobed=_G.stamper_saved_options.keupobed
     return attr
 end
 
 function StamperUI:onDestroy()
-    _G.stamper_saved_options = { buffer = self.buffer, constructionmaterial = self.constructionmaterial, constructMapping = self.constructMapping, mode = self.mode, blinkrate = self.blinkrate, selectmode = self.selectmode, erasemode = self.erasemode, state = self.state }
+    _G.stamper_saved_options = { buffer = self.buffer, constructionmaterial = self.constructionmaterial, constructMapping = self.constructMapping, mode = self.mode, blinkrate = self.blinkrate, selectmode = self.selectmode, erasemode = self.erasemode, state = self.state, keupobed=self.keupobed }
     df.global.ui.main.mode = self.saved_mode
 end
 
@@ -923,7 +929,7 @@ function StamperUI:onRenderBody(dc)
     --self.hello = true --a flag to indicate the first run, so we can print the version# to console
     self:renderOverlay()
 
-    dc:clear():seek(1, 1):pen(COLOR_WHITE):string("Stamper - " .. self.state:gsub("^%a", function(x)
+    dc:clear():seek(1, 1):pen(COLOR_WHITE):string("Stamper -4.1.3+K- " .. self.state:gsub("^%a", function(x)
         return x:upper()
     end) .. " - " .. self.mode)
     dc:seek(1, 3)
@@ -1010,6 +1016,7 @@ function StamperUI:onRenderBody(dc)
         dc:key_string("CUSTOM_SHIFT_S", "Save Brush", COLOR_GREY):newline(1)
         dc:key_string("CUSTOM_SHIFT_L", "Load Brush", COLOR_GREY)
 
+        dc:newline(1):key_string("CUSTOM_K", "Keupobed", COLOR_GREY)
 
 
     elseif self.state == "mark" then
@@ -1152,7 +1159,8 @@ function StamperUI:onInput(keys, drag, tempcursor)
             end
             io.close(file)
             print("Restored gui/stamper buffer from <<StamperPattern.txt>> in the main df folder")
-
+        elseif keys.CUSTOM_K then
+            self.buffer=keupobed(self.buffer)
         elseif (keys.SECONDSCROLL_DOWN or keys._STRING == 61 or keys._STRING == 43) and self.buffer then
             -- + or =
             local offsetX, offsetY = self:getOffset()
@@ -1702,6 +1710,157 @@ function sleep(n)
 end
 
 
+
+
+function keupobed(buffer)
+    --find all +, record their centers
+    local tempbuffer=copyall(buffer)
+    --print("buffer: "..buffer.xlen..", "..buffer.ylen)
+    buffer=padBuffer(buffer,1)
+    --print("buffer: "..buffer.xlen..", "..buffer.ylen)
+    buffer=padBuffer(buffer,1)
+    --print("buffer: "..buffer.xlen..", "..buffer.ylen)
+    local pluscenters={1}
+    for x = 1, (buffer.xlen-1) do
+        for y = 1, (buffer.ylen-1) do
+            --print(x..","..y..": "..buffer[x][y])
+            if buffer[x][y]==1 and buffer[x-1][y]==1 and buffer[x+1][y]==1 and buffer[x][y-1]==1 and buffer[x][y+1]==1 then
+                --we are in a + of designations
+                if buffer[x+1][y+1]==0 and buffer[x+1][y-1]==0 and buffer[x-1][y+1]==0 and buffer[x+1][y-1]==0 then
+                    --the four corners are not designated
+                    --[[                    if x>1 and x<(buffer.xlen-2) then
+                                            --check one further x out, should all be 0
+                                            if y>1 and y<(buffer.xlen-2) then
+                                                --check one further y out, should all be 0
+
+                                                --print("Checking outsides")
+
+                                            end
+
+                                        end]]
+
+                    if  buffer[x-2][y-1]==0 and buffer[x-2][y]==0 and buffer[x-2][y+1]==0  then
+                        --print("x-2 ok   "..x..","..y.."    [] "..buffer.xlen..","..buffer.ylen)
+                        --check one further x out, should all be 0
+                        if buffer[x+2][y-1]==0 and buffer[x+2][y]==0 and buffer[x+2][y+1]==0   then
+                            --print("x+2 ok")
+                            --check one further x out, should all be 0
+                            if  buffer[x-1][y+2]==0 and buffer[x][y+2]==0 and buffer[x+1][y+2]==0  then
+                                --print("y+2 ok")
+                                --check one further x out, should all be 0
+                                if  buffer[x-1][y-2]==0 and buffer[x][y-2]==0 and buffer[x+1][y-2]==0  then
+                                    -- print("y-2 ok")
+                                    --check one further x out, should all be 0
+                                    --print("+center")
+                                    pluscenters[1]=pluscenters[1]+1
+                                    pluscenters[pluscenters[1]]={x,y}
+                                end
+                            end
+                        end
+                    end
+
+
+
+
+
+                end
+            end
+
+        end
+    end
+
+    --list.keupobed.centers=pluscenters
+
+    local doorways={1}
+
+    for i =2,pluscenters[1] do
+        x,y=pluscenters[i][1],pluscenters[i][2]
+        --print(i.." center:"..x..","..y)
+        buffer[x][y]=df.tile_dig_designation.UpDownStair
+        buffer[x-1][y]=df.tile_dig_designation.Channel
+        buffer[x+1][y]=df.tile_dig_designation.Channel
+        buffer[x][y-1]=df.tile_dig_designation.Channel
+        buffer[x][y+1]=df.tile_dig_designation.Channel
+    end
+
+
+    for i =2,pluscenters[1] do
+        x,y=pluscenters[i][1],pluscenters[i][2]
+
+        --find a spot for the door
+        --first check cardinal
+        if buffer[x+3][y]==1 then
+            buffer[x+2][y]=df.tile_dig_designation.Ramp
+            doorways[1]=doorways[1]+1
+            doorways[doorways[1]]={x+2,y}
+            --print("   cardinal 1")
+        elseif buffer[x-3][y]==1 then
+            buffer[x-2][y]=df.tile_dig_designation.Ramp
+            doorways[1]=doorways[1]+1
+            doorways[doorways[1]]={x-2,y}
+            --print("   cardinal 2")
+        elseif buffer[x][y-3]==1 then
+            buffer[x][y-2]=df.tile_dig_designation.Ramp
+            doorways[1]=doorways[1]+1
+            doorways[doorways[1]]={x,y-2}
+            --print("   cardinal 3")
+        elseif buffer[x][y+3]==1 then
+            buffer[x][y+2]=df.tile_dig_designation.Ramp
+            doorways[1]=doorways[1]+1
+            doorways[doorways[1]]={x,y+2}
+            --print("   cardinal 4")
+
+            --then check diagonals
+        elseif buffer[x+2][y+2]==1 then
+            buffer[x+1][y+1]=df.tile_dig_designation.UpStair
+            doorways[1]=doorways[1]+1
+            doorways[doorways[1]]={x+1,y+1}
+            --print("   diagonal 1")
+        elseif buffer[x+2][y-2]==1 then
+            buffer[x+1][y-1]=df.tile_dig_designation.UpStair
+            doorways[1]=doorways[1]+1
+            doorways[doorways[1]]={x+1,y-1}
+            --print("   diagonal 2")
+        elseif buffer[x-2][y-2]==1 then
+            buffer[x-1][y-1]=df.tile_dig_designation.UpStair
+            doorways[1]=doorways[1]+1
+            doorways[doorways[1]]={x-1,y-1}
+            --print("   diagonal 3")
+        elseif buffer[x-2][y+2]==1 then
+            buffer[x-1][y+1]=df.tile_dig_designation.UpStair
+            doorways[1]=doorways[1]+1
+            doorways[doorways[1]]={x-1,y+1}
+            --print("   diagonal 4")
+
+            --then check offset diagonals
+        elseif buffer[x+1][y+3]==1 or buffer[x-1][y+3]==1 and y<(buffer.ylen-1) then
+            buffer[x][y+2]=df.tile_dig_designation.DownStair
+            doorways[1]=doorways[1]+1
+            doorways[doorways[1]]={x,y+2}
+            --print("   offset 1")
+        elseif buffer[x+1][y-3]==1 or buffer[x-1][y-3]==1 and y>1  then
+            buffer[x][y-2]=df.tile_dig_designation.DownStair
+            doorways[1]=doorways[1]+1
+            doorways[doorways[1]]={x,y-2}
+            --print("   offset 2")
+        elseif buffer[x+3][y+1]==1 or buffer[x-1][y+3]==1 and x<(buffer.xlen-1) then
+            buffer[x+2][y]=df.tile_dig_designation.DownStair
+            doorways[1]=doorways[1]+1
+            doorways[doorways[1]]={x+2,y}
+            --print("   offset 3")
+        elseif buffer[x-3][y-1]==1 or buffer[x-1][y+3]==1 and x<2 then
+            buffer[x-2][y]=df.tile_dig_designation.DownStair
+            doorways[1]=doorways[1]+1
+            doorways[doorways[1]]={x-2,y}
+            --print("   offset 4")
+        else
+            --print("No avail target to link to")
+        end
+
+    end
+    --printall(pluscenters)
+    return buffer--tempbuffer
+end
 
 
 
