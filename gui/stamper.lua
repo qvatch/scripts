@@ -10,6 +10,8 @@ brushes can be saved/loaded to a file (currently only one at a time)
 
 ]====]
 
+dfhack.screen.invalidate()
+
 --designating tool
 --v1:
 --v2:
@@ -1083,7 +1085,8 @@ function StamperUI:onRenderBody(dc)
         dc:newline(1):string("Brush will not change", COLOR_GREY)
         dc:newline(2):string("exisiting placements", COLOR_GREY)
 
-        dc:newline():newline(1):string("Shift+", COLOR_LIGHTGREEN):color(COLOR_LIGHTGREEN, true, COLOR_LIGHTGREEN):char(000):color(COLOR_LIGHTGREEN, true, COLOR_BLACK):string(": Reset KEY to default", COLOR_GREY)
+        dc:newline():newline(1):string("Shift+", COLOR_LIGHTGREEN):color(COLOR_LIGHTGREEN, true, COLOR_LIGHTGREEN):char(000):color(COLOR_LIGHTGREEN, true, COLOR_BLACK):string(": Set ALL to KEY", COLOR_GREY)
+       -- dc:newline():newline(1):string("Ctrl+Alt+Shift+", COLOR_LIGHTGREEN):color(COLOR_LIGHTGREEN, true, COLOR_LIGHTGREEN):char(000):color(COLOR_LIGHTGREEN, true, COLOR_BLACK):string(": Reset KEY to default", COLOR_GREY)
         dc:newline(1):string("Alt+", COLOR_LIGHTGREEN):color(COLOR_LIGHTGREEN, true, COLOR_LIGHTGREEN):char(000):color(COLOR_LIGHTGREEN, true, COLOR_BLACK):string(": Set KEY to Floor", COLOR_GREY)
         dc:newline(1):string("Ctrl+", COLOR_LIGHTGREEN):color(COLOR_LIGHTGREEN, true, COLOR_LIGHTGREEN):char(000):color(COLOR_LIGHTGREEN, true, COLOR_BLACK):string(": Set KEY to Wall", COLOR_GREY)
         dc:newline():newline(1):key_string("CUSTOM_SHIFT_S", "Set ALL to Skip/Ignore", COLOR_GREY)
@@ -1609,17 +1612,17 @@ function StamperUI:onInput(keys, drag, tempcursor)
                 self.constructMapping[4] = self.constructMapping[4] % #constructNames + 1
             elseif keys.CUSTOM_X then
                 self.constructMapping = { 1, 2, 3, 4, 5, 6 }
-            elseif keys.CUSTOM_SHIFT_D then
+            elseif keys.CUSTOM_SHIFT_CTRL_ALT_D then
                 self.constructMapping[1] = 1
-            elseif keys.CUSTOM_SHIFT_H then
+            elseif keys.CUSTOM_SHIFT_CTRL_ALT_H then
                 self.constructMapping[3] = 3
-            elseif keys.CUSTOM_SHIFT_U then
+            elseif keys.CUSTOM_SHIFT_CTRL_ALT_U then
                 self.constructMapping[6] = 6
-            elseif keys.CUSTOM_SHIFT_J then
+            elseif keys.CUSTOM_SHIFT_CTRL_ALT_J then
                 self.constructMapping[5] = 5
-            elseif keys.CUSTOM_SHIFT_I then
+            elseif keys.CUSTOM_SHIFT_CTRL_ALT_I then
                 self.constructMapping[2] = 2
-            elseif keys.CUSTOM_SHIFT_R then
+            elseif keys.CUSTOM_SHIFT_CTRL_ALT_R then
                 self.constructMapping[4] = 4
             elseif keys.CUSTOM_CTRL_D then
                 self.constructMapping[1] = 3
@@ -1651,6 +1654,18 @@ function StamperUI:onInput(keys, drag, tempcursor)
                 self.constructMapping = { 1, 1, 1, 1, 1, 1 }
             elseif keys.CUSTOM_SHIFT_W then
                 self.constructMapping = { 3, 3, 3, 3, 3, 3 }
+            elseif keys.CUSTOM_SHIFT_D then
+                self.constructMapping = { 1, 1, 1, 1, 1, 1 }
+            elseif keys.CUSTOM_SHIFT_H then
+                self.constructMapping = { 3, 3, 3, 3, 3, 3 }
+            elseif keys.CUSTOM_SHIFT_U then
+                self.constructMapping = { 6,6,6,6,6,6 }
+            elseif keys.CUSTOM_SHIFT_J then
+                self.constructMapping = {5,5,5,5,5,5}
+            elseif keys.CUSTOM_SHIFT_I then
+                self.constructMapping= {2,2,2,2,2,2}
+            elseif keys.CUSTOM_SHIFT_R then
+                self.constructMapping= {4,4,4,4,4,4}
             end
         end
     end
